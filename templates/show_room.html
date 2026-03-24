@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <form id="option_form">
+        <input type="text" id="add_option_box" maxlength="20">
+        <button type="submit">Add Option</button>
+    </form>
+    <script>
+        const socket = new WebSocket("ws://127.0.0.1:3000/ws/[ROOM_CODE]");
+
+        socket.onopen = function() {
+            console.log("Connected to the server!");
+            socket.send("Hello from the browser!"); 
+        };
+
+        const form = document.getElementById("option_form");
+        const inputBox = document.getElementById("add_option_box");
+
+        form.addEventListener("submit", function(event) {
+            event.preventDefault(); 
+            const optionText = inputBox.value;            
+            socket.send(optionText);             
+            inputBox.value = ""; 
+        });
+
+        socket.onmessage = function(event) {
+            console.log("The server says: ", event.data);
+        };
+    </script>
+</body>
+</html>
