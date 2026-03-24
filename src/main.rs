@@ -1,4 +1,4 @@
-use axum::extract::ws::{WebSocket, WebSocketUpgrade};
+use axum::extract::ws::{Message::Text, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::response::{Html, Redirect};
 use axum::{Form, Router, routing::get, routing::post};
@@ -8,7 +8,13 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 
-struct GameState {}
+struct GameState {
+    options: Vec<String>,
+}
+
+fn build_gamestate() -> GameState {
+    GameState { options: vec![] }
+}
 
 #[derive(Deserialize)]
 struct JoinRequest {
@@ -25,6 +31,7 @@ async fn main() {
         .route("/create_room", post(create_room))
         .route("/join_room", post(join_room))
         .route("/room/{room_code}", get(show_room))
+        .route("/room_not_found", get(room_not_found))
         .route("/ws/{room_code}", get(ws_handler))
         .with_state(shared_state);
 
@@ -55,7 +62,7 @@ fn generate_room(rooms: &mut HashMap<String, GameState>) -> String {
             break;
         }
     }
-    rooms.insert(room_code.clone(), GameState {});
+    rooms.insert(room_code.clone(), build_gamestate());
     room_code
 }
 
@@ -83,13 +90,33 @@ async fn show_room(Path(room_code): Path<String>) -> Html<String> {
 }
 
 async fn ws_handler(
+    State(state): State<Arc<Mutex<HashMap<String, GameState>>>>,
     ws: WebSocketUpgrade,
     Path(room_code): Path<String>,
 ) -> axum::response::Response {
-    ws.on_upgrade(move |socket| handle_socket(socket, room_code))
+    ws.on_upgrade(move |socket| handle_socket(state, socket, room_code))
 }
 
-async fn handle_socket(mut socket: WebSocket, room_code: String) {
+async fn room_not_found() -> Html<&'static str> {
+    Html(include_str!("../templates/room_not_found.html"))
+}
+
+fn add_option_to_room_and_get_options(
+    state: &Arc<Mutex<HashMap<String, GameState>>>,
+    option: String,
+    room_code: &str,
+) -> Option<Vec<String>> {
+    let mut locked_rooms = state.lock().unwrap();
+    let game_state = locked_rooms.get_mut(room_code)?;
+    game_state.options.push(option);
+    Some(game_state.options.clone())
+}
+
+async fn handle_socket(
+    state: Arc<Mutex<HashMap<String, GameState>>>,
+    mut socket: WebSocket,
+    room_code: String,
+) {
     println!("Someone connected to room {}!", room_code);
 
     // The Infinite Phone Call Loop
@@ -97,8 +124,21 @@ async fn handle_socket(mut socket: WebSocket, room_code: String) {
         let msg = msg.unwrap();
         println!("Received a message: {:?}", msg);
 
-        // Echo it back!
-        // socket.send(...).await.unwrap();
+        if let Text(text) = msg {
+            let received_option = text.to_string();
+            let current_options =
+                match add_option_to_room_and_get_options(&state, received_option, &room_code) {
+                    Some(options) => options,
+                    None => {
+                        socket.send(Text("Room Not Found".into())).await.unwrap();
+                        break;
+                    }
+                };
+
+            for option in current_options {
+                socket.send(Text(option.clone().into())).await.unwrap();
+            }
+        }
     }
 
     // If the loop breaks, it means they closed the browser tab!

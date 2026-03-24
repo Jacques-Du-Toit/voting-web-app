@@ -29,6 +29,9 @@
         });
 
         socket.onmessage = function(event) {
+            if (event.data == "Room Not Found") {
+                window.location.href = "/room_not_found";
+            }
             console.log("The server says: ", event.data);
         };
     </script>
